@@ -10,11 +10,7 @@ Numerical convention: geometric predicates use a GEOM_EPS tolerance.
 Zero-measure (degenerate) rectangles are valid -- they represent delta=0
 bands and 1-D interfaces -- and `contains` returns False on them.
 
-References
-----------
- - Giri & Trajcevski 2025. Obstacles-Aware Partitioning for Bounding
-   Worst-Case Response Time of Mobile Surveillance Fleet. MDM 2025.
- - Duncan, Goodrich, Kobourov 2001. Balanced Aspect Ratio trees. J. Algorithms.
+See Giri & Trajcevski 2025 (MDM) for the OA-BAR partition and ULSP bound.
 """
 
 from __future__ import annotations
@@ -174,9 +170,7 @@ class Rect:
         return self.width <= GEOM_EPS or self.height <= GEOM_EPS
 
 
-# Re-export the canonical name used by the rest of the codebase.
-# `RectRegion` is the more explicit name aligned with the Region protocol;
-# `Rect` is the short alias used throughout the env and shield code.
+
 RectRegion = Rect
 
 
@@ -249,20 +243,11 @@ class EligibilityRegion:
 
 @dataclass
 class Obstacle:
-    r"""Axis-aligned rectangular obstacle (placeholder; extends to polygons later).
+    r"""Axis-aligned rectangular obstacle used by the grid domains.
 
-    Obstacles enter the ULSP bound via their *interior-restricted perimeter*:
 
         ULSP(R) = diag(R) + (1/2) * sum_q P(P_q restricted to interior of R).
 
-    Boundary-aligned portions of an obstacle (edges that lie on the region
-    boundary del R) are EXCLUDED because they do not induce detours within
-    R -- a mobile unit can skirt them by traveling along the region boundary.
-    See `interior_perimeter_in()` below.
-
-    References
-    ----------
-    Giri & Trajcevski, MDM 2025, Theorem 1 (proof of the ULSP bound).
     """
 
     rect: Rect
@@ -300,15 +285,7 @@ class Obstacle:
 
 
 def ulsp_bound(region: Rect, obstacles: list[Obstacle]) -> float:
-    r"""OA-BAR upper bound on worst-case geodesic distance (Giri &
-    Trajcevski, MDM 2025, Theorem 1):
 
-        LSP(R) <= ULSP(R) := diag(R) + (1/2) * sum_q P(P_q interior of R),
-
-    the Euclidean diagonal plus half the interior-restricted obstacle
-    perimeter. Drives the design-time certificate U_bar_i = (1+rho)*U0_i,
-    U0_i := ULSP(R_i(0)), and the runtime bound U_i(t) (the paper, Section 2).
-    """
     obst_term = 0.5 * sum(o.interior_perimeter_in(region) for o in obstacles)
     return region.diag + obst_term
 
@@ -356,7 +333,7 @@ class InterfaceBand:
         B_ij(t) = B^(i)_ij(t) union B^(j)_ij(t).
 
     An event with location x_e in B_ij(t) is buffer-eligible for the
-    neighboring pair {i, j} (the paper, Section 3.4).
+    neighboring pair {i, j} (the paper, Section 3.2; bands in Eq. 2).
 
     For axis-aligned rectangular regions, the shared interface Gamma_ij is
     a line segment (vertical or horizontal) and the band is itself an

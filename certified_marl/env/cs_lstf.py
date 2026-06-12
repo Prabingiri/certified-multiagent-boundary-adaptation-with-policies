@@ -128,7 +128,7 @@ def least_slack_margin(
     t: float,
     speed: float = 1.0,
 ) -> float:
-    r"""Tightest LST across the admitted backlog (m_i(t), the paper Eq. 15):
+    r"""Tightest LST across the admitted backlog (m_i(t), the paper Sec. 4.2):
 
         m_i(t) = min_{e in Q_i(t)} LST_i(e, t);  U_bar_i if the queue is empty.
 
@@ -228,7 +228,7 @@ def update_load_signals(
     gamma_b: float = 1.0,
     gamma_m: float = 1.0,
     gamma_w: float = 0.0,   # spatial-utilization weight in load
-    rho_b: float = 0.9,
+    alpha_b: float = 0.9,
     alpha: float = 0.9,
     speed: float = 1.0,
 ) -> None:
@@ -237,7 +237,7 @@ def update_load_signals(
     Computes, in order (the paper Eqs. 14-16; the code's p_i is the
     paper's g_i):
 
-        bar_b_i(t) = rho_b * bar_b_i(t-1) + (1 - rho_b) * b_i^-(t)     [Eq. 14]
+        bar_b_i(t) = alpha_b * bar_b_i(t-1) + (1 - alpha_b) * b_i^-(t)     [Eq. 14]
         m_i(t)     = min_{e in Q_i} LST_i(e, t)  or  +inf if empty
         p_i(t)     = q_i(t) + gamma_b * bar_b_i(t) + gamma_m * [-m_i(t)]_+   [Eq. 15]
         l_i(t)     = alpha * l_i(t-1) + (1 - alpha) * p_i(t)           [Eq. 16]
@@ -248,7 +248,7 @@ def update_load_signals(
     """
     # EWMA of latent overload.
     agent.latent_overload_ewma = (
-        rho_b * agent.latent_overload_ewma + (1 - rho_b) * float(latent_count_this_epoch)
+        alpha_b * agent.latent_overload_ewma + (1 - alpha_b) * float(latent_count_this_epoch)
     )
 
     # Tightest committed slack m_i(t).

@@ -2,7 +2,7 @@ r"""Historical-data arrival process.
 
 Replays a real event stream through the CSG-RAG environment. The reference
 trace is the City of Chicago "Crimes - 2001 to Present" open dataset
-(Chicago Data Portal, Socrata resource ijzp-q8t2). Events are loaded from
+(Chicago Data Portal). Events are loaded from
 a JSON file with (date, latitude, longitude, primary_type) fields,
 restricted to a set of response-time-sensitive incident types (URGENT_TYPES
 below; our own filter, not an official CPD priority code), and
@@ -148,7 +148,7 @@ class HistoricalReplay(ArrivalProcess):
         # Convert each record to an Event scheduled at the env epoch.
         start_ts = start_dt.timestamp()
         # Optional time compression: replay duration_hours of source events
-        # into compress_to_epochs minutes of env time (used by the §7.4
+        # into compress_to_epochs minutes of env time (used by the Sec. 7.4
         # load-sensitivity sweep). None = real-time.
         src_duration_min = duration_hours * 60.0
         time_scale = 1.0
@@ -181,7 +181,7 @@ class HistoricalReplay(ArrivalProcess):
                 and (self._cursor >= self._n_total
                      or self._events[self._cursor].occurrence_time > t + dt)):
             # Only rewind if we've fallen out of the [t, t+dt) window
-            # entirely — preserves forward-progress within an episode.
+            # entirely - preserves forward-progress within an episode.
             if t < self._events[max(0, self._cursor - 1)].occurrence_time:
                 self._cursor = 0
         out = []

@@ -117,6 +117,8 @@ def check_edge_action_safe(
     if not (0.0 - tol <= new_dji <= interface.delta_star + tol):
         return False, "slack"
 
+    # Clause (2): inverse-action consistency is enforced by simulating
+    # the opposite directed slack with -a_ij.
     delta_overrides = {interface.key: (new_dij, new_dji)}
 
     a_i = s.agents[interface.i]
@@ -133,17 +135,10 @@ def check_edge_action_safe(
         dynamic_service_regions=dynamic_service_regions,
         delta_overrides=delta_overrides,
     )
+    # Clause (3): each endpoint kernel remains inside its service region.
     if not region_i.contains_region(a_i.kernel):
         return False, "ker"
     if not region_j.contains_region(a_j.kernel):
-        return False, "ker"
-
-    # Clause (3): directed bands cannot expose owner kernels.
-    band_i_exposed_to_j = interface.band_ij.band_rect(delta=new_dij)
-    band_j_exposed_to_i = interface.band_ji.band_rect(delta=new_dji)
-    if _rects_overlap(band_i_exposed_to_j, a_i.kernel):
-        return False, "ker"
-    if _rects_overlap(band_j_exposed_to_i, a_j.kernel):
         return False, "ker"
 
     U_i_new = ulsp_bound_region(
@@ -154,6 +149,7 @@ def check_edge_action_safe(
         region_j,
         [o for o in obstacles if _intersects_region(o, region_j)],
     ) / max(speed, 1e-9)
+    # Clause (5): response bounds remain within the certified ceilings.
     if U_i_new > a_i.U_bar + tol:
         return False, "cert_budget"
     if U_j_new > a_j.U_bar + tol:
@@ -170,10 +166,12 @@ def check_edge_action_safe(
             interface.j,
             dynamic_service_regions=dynamic_service_regions,
         )
+        # Clause (6): already committed events remain eligible.
         if not _queue_membership_ok(a_i, region_i):
             return False, "cert_queue"
         if not _queue_membership_ok(a_j, region_j):
             return False, "cert_queue"
+        # Clause (7): committed workload remains covered by the new bound.
         current_W_i = _queue_envelope_bound(a_i, current_region_i, speed=speed)
         current_W_j = _queue_envelope_bound(a_j, current_region_j, speed=speed)
         post_W_i = _queue_envelope_bound(a_i, region_i, speed=speed)

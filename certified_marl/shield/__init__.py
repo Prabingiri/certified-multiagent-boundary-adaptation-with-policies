@@ -31,7 +31,6 @@ from certified_marl.shield.feasibility_kernel import (
 )
 from certified_marl.shield.matching import (
     active_interfaces,
-    active_interfaces_band_aware,
     controller_of,
     greedy_weighted_matching,
     propose_dominant,
@@ -43,7 +42,6 @@ __all__ = [
     "safe_action_set",
     "greedy_weighted_matching",
     "active_interfaces",
-    "active_interfaces_band_aware",
     "controller_of",
     "propose_dominant",
 ]

@@ -115,10 +115,6 @@ class Domain:
         return area_km2 * per_world_time
 
 
-# ---------------------------------------------------------------------------
-# Preset domains anchored to published operational data
-# ---------------------------------------------------------------------------
-
 
 def chicago_emergency_ground() -> Domain:
     r"""Chicago ground-response SI anchor.

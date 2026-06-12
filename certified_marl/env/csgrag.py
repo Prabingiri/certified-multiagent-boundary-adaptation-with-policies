@@ -94,8 +94,7 @@ class InterfaceState:
     r"""Bookkeeping for an unordered interface {i, j}.
 
     Stores the directed slack on each side (band_ij owned by i, band_ji
-    owned by j), the interface-local certified cap delta_star, and the
-    most recent event intensity eta_ij (an edge feature).
+    owned by j) and the interface-local certified cap delta_star.
     """
 
     i: int
@@ -103,7 +102,6 @@ class InterfaceState:
     band_ij: InterfaceBand
     band_ji: InterfaceBand
     delta_star: float
-    last_event_intensity: float = 0.0  # eta_ij, smoothed elsewhere
 
     @property
     def key(self) -> tuple[int, int]:
@@ -152,19 +150,19 @@ class CSGRAGState:
     rejections: int = 0
     dynamic_service_regions: bool = False
 
-    # Per-epoch state for the rejection-aware reward (Appendix A), populated
-    # by step() and read by the reward extensions. Instantaneous (per-epoch),
-    # distinct from the cumulative rejected_by_agent; inert unless the reward
-    # weights are non-zero.
+    # Per-epoch state for the rejection-aware reward r^max (the paper, Eq. 27
+    # and CPAC auxiliary reward path), populated by step() and read by the reward extensions.
+    # Instantaneous (per-epoch), distinct from the cumulative
+    # rejected_by_agent; inert unless the reward weights are non-zero.
     generated_this_epoch_by_agent: dict = field(default_factory=dict)   # G_i(t)
     rejected_this_epoch_by_agent: dict = field(default_factory=dict)    # R_i(t)
     cross_admitted_this_epoch_by_pair: dict = field(default_factory=dict)  # owner-cross dispatches
-    # zeta_i(t) = R_i / (G_i + eps): rejection share (Appendix A, Eq. 34).
+    # zeta_i(t) = R_i / (G_i + eps): per-agent rejection share.
     rejection_share_this_epoch: dict = field(default_factory=dict)
     # lambda_i^cert(t) = nu / (U_i + tau_s): certificate-induced intensity.
     lambda_cert_per_agent: dict = field(default_factory=dict)
-    # Edge-local rejection-rate components (Appendix A): per-agent,
-    # per-neighbor generated/rejected counts -> zeta_{i|ij}.
+    # Edge-local rejection-rate components: per-agent, per-neighbor
+    # generated/rejected counts -> zeta_{i|ij}.
     gen_by_agent_neighbor: dict = field(default_factory=dict)
     rej_by_agent_neighbor: dict = field(default_factory=dict)
     edge_local_rejection_share: dict = field(default_factory=dict)  # zeta_{i|ij}
@@ -256,7 +254,8 @@ class CSGRAGEnv:
         Default certified cap delta^star_{ij} used for every interface.
         Can be set per-interface from OA-BAR clearance where available.
     delta_step : float
-        Delta_delta, the per-step slack increment in Eq. 3 of the paper.
+        Delta_delta, the per-step slack increment in the directed-slack
+        update (Eq. 3) of the paper.
     rng : np.random.Generator | None
         Master rng for env-side stochasticity (not arrival-side).
     horizon : int
@@ -282,24 +281,21 @@ class CSGRAGEnv:
         # Equal head-start for all policies: delta_ij(0) = beta * delta*_ij.
         # Default 0.0 (zero initial slack); the shield keeps beta in [0, 1].
         initial_delta_fraction: float = 0.0,
-        # No-shield ablation: count violations but do not prevent them
-        # (measures the unshielded violation rate).
-        disable_shield: bool = False,
         # Spatial-load weight on W_i/U_bar; 0.0 = the paper's load exactly.
         gamma_w_load: float = 0.0,
         # Service-surface mode: False = static owner rectangle; True = the
         # dynamic eligibility region E_i(t) = R_i^0 union borrowed strips.
         dynamic_service_regions: bool = False,
-        # Rejection-aware reward params (Appendix A); inert unless the
-        # reward weights are non-zero.
+        # Rejection-aware reward r^max params (the paper, Eq. 27 and
+        # CPAC auxiliary reward path); inert unless the reward weights are non-zero.
         nu_load_factor: float = 0.85,            # nu in lambda_i^cert = nu/(U_i+tau_s)
         tau_s_nominal: float = 1.0,              # tau_s nominal service time
-        reward_v2_epsilon: float = 1.0e-6,       # eps in zeta_i = R_i/(G_i+eps)
+        aux_epsilon: float = 1.0e-6,       # eps in zeta_i = R_i/(G_i+eps)
     ) -> None:
         assert len(regions) == len(kernels) == len(U_bar), \
             "regions, kernels, U_bar must have the same length (one entry per agent)."
         assert 0.0 <= initial_delta_fraction <= 1.0, \
-            "initial_delta_fraction must lie in [0, 1] (fraction of δ*_ij)."
+            "initial_delta_fraction must lie in [0, 1] (fraction of delta*_ij)."
         self.n = len(regions)
         self.regions0 = list(regions)
         self.kernels = list(kernels)
@@ -323,13 +319,12 @@ class CSGRAGEnv:
         self._state: Optional[CSGRAGState] = None
         self.domain = domain  # SI-anchor for reporting; optional.
         self.initial_delta_fraction = float(initial_delta_fraction)
-        self.disable_shield = bool(disable_shield)
         self.gamma_w_load = float(gamma_w_load)
         self.dynamic_service_regions = bool(dynamic_service_regions)
-        # Per-epoch reward-v2 parameters.
+        # Auxiliary-reward parameters (load and rejection signals).
         self.nu_load_factor = float(nu_load_factor)
         self.tau_s_nominal = float(tau_s_nominal)
-        self.reward_v2_epsilon = float(reward_v2_epsilon)
+        self.aux_epsilon = float(aux_epsilon)
         # Regime A's adversarial arrivals query env state via set_env;
         # other arrival classes do not implement it.
         if hasattr(self.arrivals, "set_env"):
@@ -438,12 +433,7 @@ class CSGRAGEnv:
                 latent_overload_ewma=0.0, load_pressure_ewma=0.0,
             ))
         interfaces = self._build_interfaces([a.region for a in agents])
-        # Head-start equalization. Apply initial_delta_fraction uniformly
-        # so every policy starts from the same geometry δ_ij(0) = β · δ*_ij.
-        # Shield clause (1) holds since β · δ* ∈ [0, δ*]; clause (5) needs a
-        # certificate recheck because a non-zero initial band changes R_i(0)
-        # and thus U_i^0 is already the "collaborating" geometry. We do the
-        # recheck below and fail loudly if the design is infeasible at t=0.
+
         if self.initial_delta_fraction > 0.0:
             init_delta = self.initial_delta_fraction * self.delta_star_default
             for ifs in interfaces.values():
@@ -455,9 +445,7 @@ class CSGRAGEnv:
             dynamic_service_regions=self.dynamic_service_regions,
         )
         self._refresh_certificates(t_cont=0.0)
-        # Theorem 6.2 assumes the system starts in a certified state, so a
-        # misconfigured init (e.g. too-large initial_delta_fraction) must
-        # fail loudly rather than silently begin infeasible.
+
         _init_viols = {
             k: v for k, v in self._state.violations.items()
             if v > 0 and k in ("geom", "ker", "cert")
@@ -574,11 +562,12 @@ class CSGRAGEnv:
         ----------
         edge_actions : dict
             Mapping from canonical unordered key (i, j) with i < j to
-            signed action in {-1, 0, +1}. The convention (the paper,
-            Eq. 3): a_ij = +1 means "i expands into j" (delta_ij, the
-            i-side band exposed to j, DECREASES, while delta_ji INCREASES).
-            The antisymmetric inverse action on
-            (j, i) is applied automatically by the update rule.
+            signed action in {-1, 0, +1}. The convention (the paper, Sec. 3.3
+            and Eq. 3, delta_ij(t+1) = Pi[delta_ij - a_ij * Delta_delta]):
+            a_ij = +1 expands agent i into R_j ("i expands into j"; delta_ij
+            DECREASES while delta_ji INCREASES), a_ij = -1 expands j into R_i,
+            a_ij = 0 holds. The antisymmetric inverse action a_ji = -a_ij
+            (Eq. 4) on (j, i) is applied automatically by the update rule.
 
         Returns
         -------
@@ -598,13 +587,12 @@ class CSGRAGEnv:
         """
         s = self.state
         info: dict = dict(admitted=0, rejected=0, completed=0)
-        # Reset per-epoch reward-v2 fields.
-        # Populated in the admission loop (G_i, R_i, cross_by_pair) and
-        # finalized at the end of step (ζ_i, λ_i^cert).
+        # Reset per-epoch auxiliary-reward fields.
+
         s.generated_this_epoch_by_agent = {k: 0 for k in range(self.n)}
         s.rejected_this_epoch_by_agent = {k: 0 for k in range(self.n)}
         s.cross_admitted_this_epoch_by_pair = {}
-        # Edge-local rejection (Appendix A): per-agent, per-neighbor.
+        # Edge-local rejection: per-agent, per-neighbor.
         s.gen_by_agent_neighbor = {k: {} for k in range(self.n)}
         s.rej_by_agent_neighbor = {k: {} for k in range(self.n)}
         # Per-edge collaboration attribution. cross_admitted_by_edge counts
@@ -632,7 +620,7 @@ class CSGRAGEnv:
                 i, j = pair
                 edge = (min(i, j), max(i, j))
                 owner_of_ev = self._owner_of(ev.x, ev.y)
-                # Reward-v2: event incident to both pair endpoints.
+                # Auxiliary-reward stats: event incident to both pair endpoints.
                 s.generated_this_epoch_by_agent[i] = s.generated_this_epoch_by_agent.get(i, 0) + 1
                 s.generated_this_epoch_by_agent[j] = s.generated_this_epoch_by_agent.get(j, 0) + 1
                 # Edge-local: buffer event at (i,j) counts for the (i,j)
@@ -650,7 +638,7 @@ class CSGRAGEnv:
                     _inc_info_dict("buffer_rejected_by_edge", edge)
                     latent_counts[i] += 1
                     latent_counts[j] += 1
-                    # Per-region starvation tracking: attribute the
+                    # Per-region rejection tracking: attribute the
                     # rejection to the GEOMETRIC OWNER at event location.
                     # For buffer-eligible events, geometric owner is the
                     # endpoint whose region physically contains x_e.
@@ -658,7 +646,7 @@ class CSGRAGEnv:
                         s.rejected_by_agent = {k: 0 for k in range(len(s.agents))}
                     if owner_of_ev is not None:
                         s.rejected_by_agent[owner_of_ev] = s.rejected_by_agent.get(owner_of_ev, 0) + 1
-                        # Reward-v2: per-epoch rejection attribution.
+                        # Auxiliary-reward stats: per-epoch rejection attribution.
                         s.rejected_this_epoch_by_agent[owner_of_ev] = (
                             s.rejected_this_epoch_by_agent.get(owner_of_ev, 0) + 1)
                         # Edge-local: buffer event rejected at (i,j) counts
@@ -673,7 +661,7 @@ class CSGRAGEnv:
                     _inc_info_dict("buffer_admitted_by_edge", edge)
                     if owner_of_ev is not None and chosen.idx != owner_of_ev:
                         _inc_info_dict("cross_admitted_by_edge", edge)
-                        # Reward-v2: true-cross per-epoch tracking.
+                        # Auxiliary-reward stats: true-cross per-epoch tracking.
                         s.cross_admitted_this_epoch_by_pair[edge] = (
                             s.cross_admitted_this_epoch_by_pair.get(edge, 0) + 1)
                     else:
@@ -688,7 +676,7 @@ class CSGRAGEnv:
                 info["rejected"] += 1
                 continue
             a = s.agents[owner]
-            # Reward-v2: per-epoch generated count for the geometric owner.
+            # Auxiliary-reward stats: per-epoch generated count for the geometric owner.
             s.generated_this_epoch_by_agent[owner] = s.generated_this_epoch_by_agent.get(owner, 0) + 1
             # Edge-local: private event at owner counts for EVERY edge
             # incident to owner (the event is affected by all of owner's
@@ -708,7 +696,7 @@ class CSGRAGEnv:
                 if not hasattr(s, "rejected_by_agent"):
                     s.rejected_by_agent = {k: 0 for k in range(len(s.agents))}
                 s.rejected_by_agent[owner] = s.rejected_by_agent.get(owner, 0) + 1
-                # Reward-v2: per-epoch rejection attribution.
+                # Auxiliary-reward stats: per-epoch rejection attribution.
                 s.rejected_this_epoch_by_agent[owner] = (
                     s.rejected_this_epoch_by_agent.get(owner, 0) + 1)
                 # Edge-local admit path: private rejection.
@@ -778,10 +766,7 @@ class CSGRAGEnv:
                 else:
                     counter_key = reason if reason in s.violations else "geom"
                     s.violations[counter_key] = s.violations.get(counter_key, 0) + 1
-                # No-shield ablation: when disable_shield=True, let the action
-                # execute anyway (to measure the unshielded violation rate).
-                if not self.disable_shield:
-                    continue
+                continue
             # Apply Eq. 3 update with snap-to-exact on tiny residues
             # (floating-point residue guard).
             new_delta_ij = float(np.clip(
@@ -825,24 +810,24 @@ class CSGRAGEnv:
             update_load_signals(a, latent_counts[a.idx], t_cont,
                                 gamma_w=gamma_w, speed=self.speed)
 
-        # --- 5b. Reward-v2 finalization ------------
-        # Compute ζ_i(t) = R_i(t) / (G_i(t) + ε) and
-        # λ_i^cert(t) = ν / (U_i + τ_s). Both use the post-step certificates
+        # --- 5b. Auxiliary-reward statistics ------------
+        # Compute zeta_i(t) = R_i(t) / (G_i(t) + epsilon) and
+        # lambda_i^cert(t) = nu / (U_i + tau_s). Both use the post-step certificates
         # already refreshed in step 4. Defaults are inert: the reward
         # consumer must opt in via positive weights to alter training.
-        eps_rv2 = float(self.reward_v2_epsilon)
-        nu_rv2 = float(self.nu_load_factor)
-        tau_s_rv2 = float(self.tau_s_nominal)
+        eps_aux = float(self.aux_epsilon)
+        nu_aux = float(self.nu_load_factor)
+        tau_s_aux = float(self.tau_s_nominal)
         s.rejection_share_this_epoch = {
             k: (float(s.rejected_this_epoch_by_agent.get(k, 0)) /
-                (float(s.generated_this_epoch_by_agent.get(k, 0)) + eps_rv2))
+                (float(s.generated_this_epoch_by_agent.get(k, 0)) + eps_aux))
             for k in range(self.n)
         }
         s.lambda_cert_per_agent = {
-            k: nu_rv2 / (max(float(s.agents[k].U_current), eps_rv2) + tau_s_rv2)
+            k: nu_aux / (max(float(s.agents[k].U_current), eps_aux) + tau_s_aux)
             for k in range(self.n)
         }
-        # Edge-local zeta finalization (Appendix A):
+        # Edge-local zeta finalization:
         # zeta_{i|ij} = R_{i|ij} / (G_{i|ij} + eps) per ordered (i, j).
         s.edge_local_rejection_share = {}
         for i_agent in range(self.n):
@@ -852,23 +837,10 @@ class CSGRAGEnv:
                 _g = float(gen_by_n.get(j_neighbor, 0))
                 _r = float(rej_by_n.get(j_neighbor, 0))
                 s.edge_local_rejection_share[(i_agent, j_neighbor)] = (
-                    _r / (_g + eps_rv2)
+                    _r / (_g + eps_aux)
                 )
 
         # --- 6. Advance clock ----------------------------------------------
         s.t += 1
         info["done"] = s.t >= self.horizon
         return s, info
-
-    def _eligibility_rect(self, i: int) -> Rect:
-        r"""Rectangular envelope of service eligibility.
-
-        In static mode this is the owner rectangle. In dynamic service-region
-        mode we return the bounding box of E_i(t) so callers that expect a
-        Rect still work. New certificate logic should call
-        `_eligibility_region()` instead.
-        """
-        region = self._eligibility_region(i)
-        if isinstance(region, Rect):
-            return region
-        return region.bounding_box

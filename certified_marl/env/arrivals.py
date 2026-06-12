@@ -224,7 +224,7 @@ class MultiHotspot(ArrivalProcess):
     sigma : float
         Standard deviation of Gaussian blob per region.
     normal_centers : list of (x, y)
-        Centroids of the (N − k_hot) normal regions.
+        Centroids of the (N - k_hot) normal regions.
     service_time : float
     bounds : 4-tuple
     rng : Generator

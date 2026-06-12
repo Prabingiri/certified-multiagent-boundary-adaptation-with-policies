@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "certified-multiagent-boundary-adaptation"
+version = "0.1.0"
+description = "Certified multi-agent collaboration via boundary adaptation under worst-case response constraints."
+authors = [
+    {name = "Prabin Giri", email = "pgiri@iastate.edu"},
+    {name = "Goce Trajcevski", email = "gocet25@iastate.edu"},
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "pandas>=2.0",
+    "torch>=2.1",
+    "shapely>=2.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "matplotlib>=3.7",
+    "pytest>=7.4",
+]
+
+
+[project.urls]
+Repository = "https://github.com/Prabingiri/certified-multiagent-boundary-adaptation-with-policies"
+[project.optional-dependencies]
+dev = [
+    "black>=23.0",
+    "ruff>=0.1",
+    "ipykernel>=6.25",
+    "jupyter>=1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["certified_marl*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]

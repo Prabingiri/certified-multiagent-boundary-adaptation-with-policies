@@ -1,0 +1,89 @@
+# EXP00 - Certified Action-Space Calibration
+
+experiment:
+  name: exp00_g4_c8
+  seed: 0
+  num_updates: 0               # EXP00 does not train; just instruments the env.
+  log_path: runs/exp00_g4_c8/log.jsonl
+  save_every: 0
+  trainer: none                # no trainer invoked
+  domain: canonical_cells      # canonical cells/epochs convention
+
+env:
+  # 4 x 4 grid of 8 x 8 regions. Coordinates in CELLS.
+  regions:
+    - [ 0.0,  0.0,  8.0,  8.0]
+    - [ 8.0,  0.0, 16.0,  8.0]
+    - [16.0,  0.0, 24.0,  8.0]
+    - [24.0,  0.0, 32.0,  8.0]
+    - [ 0.0,  8.0,  8.0, 16.0]
+    - [ 8.0,  8.0, 16.0, 16.0]
+    - [16.0,  8.0, 24.0, 16.0]
+    - [24.0,  8.0, 32.0, 16.0]
+    - [ 0.0, 16.0,  8.0, 24.0]
+    - [ 8.0, 16.0, 16.0, 24.0]
+    - [16.0, 16.0, 24.0, 24.0]
+    - [24.0, 16.0, 32.0, 24.0]
+    - [ 0.0, 24.0,  8.0, 32.0]
+    - [ 8.0, 24.0, 16.0, 32.0]
+    - [16.0, 24.0, 24.0, 32.0]
+    - [24.0, 24.0, 32.0, 32.0]
+  # Kernels: will be recomputed at runtime using epsilon_i = max_j delta_ij^max.
+  # For YAML schema compatibility we provide a conservative 0.5-cell inset as a
+  # default value; overridden at runtime per the kernel rule.
+  kernels:
+    - [ 0.5,  0.5,  7.5,  7.5]
+    - [ 8.5,  0.5, 15.5,  7.5]
+    - [16.5,  0.5, 23.5,  7.5]
+    - [24.5,  0.5, 31.5,  7.5]
+    - [ 0.5,  8.5,  7.5, 15.5]
+    - [ 8.5,  8.5, 15.5, 15.5]
+    - [16.5,  8.5, 23.5, 15.5]
+    - [24.5,  8.5, 31.5, 15.5]
+    - [ 0.5, 16.5,  7.5, 23.5]
+    - [ 8.5, 16.5, 15.5, 23.5]
+    - [16.5, 16.5, 23.5, 23.5]
+    - [24.5, 16.5, 31.5, 23.5]
+    - [ 0.5, 24.5,  7.5, 31.5]
+    - [ 8.5, 24.5, 15.5, 31.5]
+    - [16.5, 24.5, 23.5, 31.5]
+    - [24.5, 24.5, 31.5, 31.5]
+  # Certificate ceiling Ubar = (1+rho) * U0.
+  #   U0 = ULSP(R_i^0) / v + tau_s = sqrt(8^2 + 8^2) / 1 + 1 = 11.3137 + 1 = 12.3137
+  #   rho = 0.20 => Ubar = 1.20 * 12.3137 = 14.7765
+  # We round to 14.78 for YAML clarity; the shield still uses the exact ULSP.
+  U_bar: [14.78, 14.78, 14.78, 14.78, 14.78, 14.78, 14.78, 14.78,
+          14.78, 14.78, 14.78, 14.78, 14.78, 14.78, 14.78, 14.78]
+  bounds: [0.0, 0.0, 32.0, 32.0]
+  dt: 1.0                      # 1 epoch per step
+  speed: 1.0                   # v = 1 cell / epoch (canonical convention)
+  # Trilemma-derived static cap. For rho=0.20 on W=8 cells:
+  #   linear-approx delta_max ~ rho*W/sqrt2 ~ 0.20*8/1.414 ~ 1.13 cells
+  # Round to 1.0 to keep kernel inset epsilon = 1.0 -> |K_i|/|R_i| = (1-2/8)^2 = 56.25%.
+  # This is tighter than the certificate-alone bound (~3.21 cells by exact
+  # asymmetric ULSP calc) but required to preserve a meaningful kernel.
+  # See the band-width trade-off analysis and the shield U-recomputation.
+  delta_star_default: 1.0
+  delta_step: 0.2              # delta_star / L = 1.0 / 5  (default L=5)
+  horizon: 100                 # enough epochs for variety; 100 is ample
+  # beta = 0 initial buffer so the shield reports true action-space from delta = 0.
+  initial_delta_fraction: 0.0
+
+arrivals:
+  # Mild uniform arrivals just so the env ticks normally and pressure signals
+  # are defined. EXP00 does not measure performance - it measures feasibility.
+  kind: uniform
+  rate: 0.5                    # 0.5 events/epoch over 16 regions (light load)
+  service_time: 1.0            # tau_s = 1 epoch
+
+# Placeholder shaping/trainer blocks for YAML schema compatibility.
+# EXP00 does not use them.
+model: {state_dim: 6, critic_dim: 9, hidden: 64}
+trainer: {lr_actor: 3.0e-4, lr_critic: 1.0e-3, gamma: 0.99, gae_lambda: 0.95,
+  clip_eps: 0.2, entropy_coef: 0.01, value_coef: 0.5, epochs_per_update: 4,
+  minibatch_size: 128, max_grad_norm: 0.5, rollout_length: 256,
+  admission_reward_coef: 0.0, epsilon_start: 0.0, epsilon_final: 0.0}
+# Latent-overload reward weight. rho is reserved for response-budget tolerance.
+# The certificate rho lives at env level (implicit in U_bar) and must NOT be
+# confused with any reward-weight symbol.
+shaping: {beta: 1.0, omega_b: 0.5, kappa: 0.1, eta: 0.01}

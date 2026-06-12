@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software or its results, please cite the paper below."
+title: "Certified Multi-Agent Collaboration via Boundary Adaptation under Worst-Case Response Constraints"
+authors:
+  - family-names: Giri
+    given-names: Prabin
+    affiliation: Iowa State University
+  - family-names: Trajcevski
+    given-names: Goce
+    affiliation: Iowa State University
+repository-code: "https://github.com/Prabingiri/certified-multiagent-boundary-adaptation-with-policies"
+license: MIT
+preferred-citation:
+  type: conference-paper
+  title: "Certified Multi-Agent Collaboration via Boundary Adaptation under Worst-Case Response Constraints"
+  authors:
+    - family-names: Giri
+      given-names: Prabin
+      affiliation: Iowa State University
+    - family-names: Trajcevski
+      given-names: Goce
+      affiliation: Iowa State University
+  year: 2026
+  notes: "Under review."

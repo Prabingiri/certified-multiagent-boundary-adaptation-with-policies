@@ -1,0 +1,140 @@
+# Chicago Loop-4 — week 2023-01 — 4-district CPD subset.
+#
+# Districts (mapped to 2x2 env quadrants):
+#   Region 0 (NW, env [0,16,16,32]):  Dist 12 Near West   HOT-A
+#   Region 1 (NE, env [16,16,32,32]): Dist 18 Near North  COLD-A
+#   Region 2 (SW, env [0,0,16,16]):   Dist  2 Wentworth   HOT-B
+#   Region 3 (SE, env [16,0,32,16]):  Dist  1 Central     COLD-B
+#
+# Capacity asymmetric: hot regions provisioned at 1 unit,
+# cold regions at 2 units, to put the hot column into the stress band
+# (rho ~0.4 baseline, frequent surges past 1.0) where boundary
+# lending decisions actually matter.
+
+arrivals:
+  day_offset_hours: 0
+  duration_hours: 168       # full 7-day week
+  json_path: data/chicago_loop4_week_2023-12.json
+  kind: historical_replay
+  service_time: 0.17        # 10 min/event; matches legacy 4-region
+  urgent_only: true
+  # Time compression: replay 168 hr (10080 min) of dispatch events into
+  # 504 min of env time (8.4 hr) -> 20x rate acceleration. Pushes hot
+  # regions into the stress band rho_hot ~ 0.73 where the certificate
+  # binds and policy choices actually differentiate. Models surge-regime
+  # operational conditions (mass events, multi-incident response).
+  compress_to_epochs: 504
+
+env:
+  bounds:
+    - 0.0
+    - 0.0
+    - 8.0
+    - 8.0
+  delta_star_default: 1.2
+  delta_step: 0.12
+  dt: 1.0
+  horizon: 504     # match compress_to_epochs: 8.4 hr of env time
+  speed: 1.44
+  tier2_delta: 0.05
+
+  # Per-region worst-case capacity bound.
+  # ULSP floor: 4x4 region diagonal = 5.66, /speed=1.44 = 3.93 hr.
+  # U_bar must be >= 3.93 for clause (5) cert_budget to admit hold.
+  # Asymmetric calibration: hot regions at the floor (4.0), cold at 2x
+  # (8.0). The asymmetry creates a wider safe action set for cold
+  # regions so they can absorb lending from the hot column under surge.
+  U_bar:
+    # rho=0.35 system-wide; U_bar_i = (1+rho)*(ULSP_i/v + tau_s) = 1.35*4.10 = approx 5.5 (no obstacles); raised to 15.0 to accommodate obstacle-induced ULSP increase.
+    # Asymmetry between hot/cold regions comes from arrival rates (real Chicago data),
+    # not stipulated capacity. All 4 regions have identical 4x4 geometry so U_bar uniform.
+    - 6.575   # R0 (Dist 12, 1 obstacle, ULSP=4.70 hr)
+    - 13.566  # R1 (Dist 18, 9 obstacles, ULSP=9.88 hr)
+    - 15.229  # R2 (Dist 2, 10 obstacles, ULSP=11.11 hr)
+    - 9.733   # R3 (Dist 1, 7 obstacles, ULSP=7.04 hr)
+
+
+  # Real OpenStreetMap obstacles (water, highways, parks) overlapping the
+  # 4 CPD districts. Fetched via Overpass API for the Loop4 bbox; top-10
+  # largest features per district by env-coord area. Real-feature names:
+  # Kennedy Expwy, Lake Shore Dr, Dan Ryan, Chicago River, Millennium Park, etc.
+  # Source: data/chicago_loop4_obstacles_top10.json
+  obstacles:
+    - [0.295, 4.1, 0.717, 4.79]
+    - [4.707, 5.876, 5.326, 6.852]
+    - [6.475, 5.769, 6.941, 6.496]
+    - [5.763, 4.883, 7.08, 5.106]
+    - [6.477, 5.764, 6.932, 6.409]
+    - [6.144, 7.241, 6.33, 7.9]
+    - [4.706, 5.233, 5.05, 5.553]
+    - [6.139, 7.369, 6.271, 7.9]
+    - [7.109, 5.189, 7.353, 5.453]
+    - [7.196, 5.432, 7.376, 5.713]
+    - [1.732, 0.181, 2.301, 1.496]
+    - [2.697, 2.374, 3.167, 3.171]
+    - [2.683, 2.368, 3.146, 3.164]
+    - [3.403, 1.258, 3.723, 2.005]
+    - [0.859, 0.1, 1.165, 0.662]
+    - [2.187, 3.495, 2.535, 3.9]
+    - [2.208, 3.514, 2.536, 3.9]
+    - [1.874, 0.235, 2.18, 0.625]
+    - [3.456, 1.483, 3.704, 1.877]
+    - [0.873, 0.1, 0.958, 1.208]
+    - [6.707, 0.1, 6.913, 0.618]
+    - [4.955, 0.181, 5.091, 0.949]
+    - [6.368, 2.838, 6.716, 3.117]
+    - [6.732, 0.1, 6.895, 0.676]
+    - [4.502, 0.113, 4.883, 0.276]
+    - [4.638, 1.35, 4.813, 1.652]
+    - [6.166, 2.833, 6.358, 3.106]
+  regions:
+    - [ 0.0,  4.0,  4.0,  8.0]   # R0 NW
+    - [ 4.0,  4.0,  8.0,  8.0]   # R1 NE
+    - [ 0.0,  0.0,  4.0,  4.0]   # R2 SW
+    - [ 4.0,  0.0,  8.0,  4.0]   # R3 SE
+
+  # Kernel = 56% of region area (1.0 inset on each side).
+  # Provides ~8 boundary-step flexibility per interface direction,
+  # which is the action-space headroom CPAC needs for non-trivial
+  # learning while preserving a substantive invariant core.
+  kernels:
+    - [ 1.0,  5.0,  3.0,  7.0]   # K0 inside R0
+    - [ 5.0,  5.0,  7.0,  7.0]   # K1 inside R1
+    - [ 1.0,  1.0,  3.0,  3.0]   # K2 inside R2
+    - [ 5.0,  1.0,  7.0,  3.0]   # K3 inside R3
+
+experiment:
+  domain: chicago_loop4_ground
+  log_path: runs/chicago_loop4_v3_2023_12/log.jsonl
+  name: chicago_loop4_v3_2023_12
+  num_updates: 0
+  save_every: 0
+  seed: 0
+  trainer: none
+
+model:
+  critic_dim: 9
+  hidden: 64
+  state_dim: 6
+
+shaping:
+  beta: 1.0
+  eta: 0.01
+  kappa: 0.1
+  rho: 0.5
+
+trainer:
+  admission_reward_coef: 0.5
+  clip_eps: 0.2
+  entropy_coef: 0.01
+  epochs_per_update: 4
+  epsilon_final: 0.05
+  epsilon_start: 0.3
+  gae_lambda: 0.95
+  gamma: 0.99
+  lr_actor: 0.0003
+  lr_critic: 0.001
+  max_grad_norm: 0.5
+  minibatch_size: 128
+  rollout_length: 256
+  value_coef: 0.5

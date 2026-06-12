@@ -31,22 +31,6 @@ def coef_variation(loads: Iterable[float]) -> float:
     return float(x.std() / mu)
 
 
-def gini_coefficient(loads: Iterable[float]) -> float:
-    """Gini coefficient helper used by optional trainer terms."""
-    x = np.asarray(list(loads), dtype=float)
-    n = x.size
-    if n == 0:
-        return 0.0
-    if x.min() < 0.0:
-        x = x - x.min()
-    total = x.sum()
-    if total < 1e-15:
-        return 0.0
-    x_sorted = np.sort(x)
-    idx = np.arange(1, n + 1)
-    return float(((2 * idx - n - 1) * x_sorted).sum() / (n * total))
-
-
 class ImbalanceTracker:
     """Records load coefficient of variation over a rollout."""
 
@@ -70,5 +54,4 @@ __all__ = [
     "ImbalanceMetrics",
     "ImbalanceTracker",
     "coef_variation",
-    "gini_coefficient",
 ]
